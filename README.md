@@ -8,7 +8,6 @@ This repository contains my solution to a 24-hour McKinley Analytics online hack
 For this hackathon, I've used R (3.4.4) via RStudio (1.0.153) on my ever reliable 2016 Macbook Pro (2 GHz Intel Core i5, 8GB RAM).
 
 Here's a list R libraries I'ved used in the process:
-
 ###### library(dplyr) - for easy data manipulation
 ###### library(recipes) - for its high-level functions for data preprocessing and normalization
 ###### library(rpart) - for missing data imputation via Decision Tree algorithm
