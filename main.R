@@ -10,20 +10,18 @@ dpath <- "data"
 
 setwd(paste(mpath, spath, sep = "/"))
 
-#--- Libraries
-library(dplyr)
-library(keras)
-library(recipes)
-
-#--------------------------------------------------
-#--- 1. Loading the datasets
-#--------------------------------------------------
+# #--------------------------------------------------
+# #--- 1. Loading the datasets
+# #--------------------------------------------------
 train_df <- read.csv(paste(mpath, spath, dpath, "train.csv", sep = "/"), header = TRUE, stringsAsFactors = FALSE)
 test_df <- read.csv(paste(mpath, spath, dpath, "test.csv", sep = "/"), header = TRUE, stringsAsFactors = FALSE)
 
-#--------------------------------------------------
-#--- 2. Preparing the data
-#--------------------------------------------------
+
+# # --------------------------------------------------
+# # --- 2. Preparing the data
+# # --------------------------------------------------
+library(dplyr)
+# Combine train and test
 df <- train_df %>%
   rbind(test_df %>%
           mutate(stroke = NA))
@@ -35,55 +33,67 @@ bmi.i <- rpart(bmi ~ gender + age + hypertension + heart_disease + ever_married 
                  smoking_status, data = df[!is.na(df$bmi),], method = "anova")
 df$bmi[is.na(df$bmi)] <- predict(bmi.i, df[is.na(df$bmi),])
 
+# Feature Engineering
 df <- df %>%
   mutate(smoking_status = ifelse(smoking_status == "", "unknown", smoking_status),
          gender = ifelse(gender == "Other", "Female", gender),
          bmi_orig = bmi,
          age_orig = age,
          avg_glucose_level_orig = avg_glucose_level,
-         bmi_01 = ifelse(bmi_orig < 18.5, 1, 0),
-         bmi_02 = ifelse(bmi_orig >= 18.5 & bmi_orig <= 24.9, 1, 0),
-         bmi_03 = ifelse(bmi_orig > 24.9 & bmi_orig <= 29.9, 1, 0),
-         bmi_04 = ifelse(bmi_orig > 29.9, 1, 0),
-         age_grp = cut(age_orig, breaks = seq(0,110,10)))
+         age_grp = cut(age_orig, breaks = seq(0,90,10)),
+         bmi_grp = ifelse(bmi_orig < 18.5, 1,
+                          ifelse(bmi_orig >= 18.5 & bmi_orig <= 24.9, 2, 
+                                 ifelse(bmi_orig > 24.9 & bmi_orig <= 29.9, 3, 
+                                        ifelse(bmi_orig > 29.9, 4, 5)))),
+         gen_bmi = paste(gender, bmi_grp, sep = "_"),
+         gen_age = paste(gender, age_grp, sep = "_"),
+         bmi_age = paste(bmi_grp, age_grp, sep = "_"),
+         p1 = paste0(gender, smoking_status),
+         p2 = ifelse(age > 68, 1, 0),
+         p3 = paste0(age_grp, gender),
+         p4 = ifelse(age > 50, 1, 0),
+         p5 = paste0(age_grp, gender),
+         high_glucose = ifelse(avg_glucose_level_orig >= 120, 1, 0),
+         mhigh_glucose = ifelse(avg_glucose_level_orig >= 100, 1, 0))
 
 
 train_df <- df %>%
-  filter(!is.na(stroke))
-
+  filter(!is.na(stroke)) %>%
+  data.frame()
 test_df <- df %>%
-  filter(is.na(stroke))
+  filter(is.na(stroke)) %>%
+  data.frame()
 
-# Create recipe
+# Recipe
+library(recipes)
 rec_obj <- recipe(stroke ~ .,
-                  data = df %>%
+                  data = train_df %>%
                     select(-id)) %>%
   add_role(stroke, new_role = "outcome") %>%
   step_discretize(age, options = list(cuts = 8)) %>%
   step_discretize(bmi, options = list(cuts = 5)) %>%
-  step_discretize(avg_glucose_level, options = list(cuts = 20)) %>%
+  step_discretize(avg_glucose_level, options = list(cuts = 10)) %>%
   step_dummy(all_nominal(), -all_outcomes()) %>%
   step_center(all_predictors(), -all_outcomes()) %>%
   step_scale(all_predictors(), -all_outcomes()) %>%
-  prep(data = df)
+  prep(data = train_df)
 
-# Predictors
+# Create final predictors
 x_train <- bake(rec_obj, newdata = train_df)
 x_train[is.na(x_train)] <- 0
 x_test  <- bake(rec_obj, newdata = test_df)
 x_test[is.na(x_test)] <- 0
 
-# Response
-# y_train_vec <- x_train$stroke
-# x_train$stroke <- NULL
-# x_test$stroke <- NULL
-
-library(DMwR)
 # SMOTE(Synthetic Minority Over-sampling Technique) Sampling
+library(DMwR)
 x_train$stroke <- as.factor(x_train$stroke)
 x_train <- data.frame(x_train)
 x_train <- SMOTE(stroke ~ ., data = x_train, perc.over = 1000, perc.under=500, seed = 1)
 
+
+# #--------------------------------------------------
+# #--- 3. Model Build 
+# #--------------------------------------------------
 
 library(h2o)
 h2o.init(nthreads = -1)
@@ -92,24 +102,28 @@ h2o.init(nthreads = -1)
 y <- "stroke"
 x <- setdiff(names(x_train), y)
 
-# For binary classification, response should be a factor
+# Convert Response into factor var
 x_train$stroke <- as.factor(x_train$stroke)
 x_test$stroke <- as.factor(x_test$stroke)
 
+# Convert data frames into h2o objects
 x_train <- as.h2o(x_train)
 x_test <- as.h2o(x_test)
 
 
-#--- XGBOOST PARAMETER GRID SEARCH
+# --- XGBOOST PARAMETER GRID SEARCH
 # # Some XGboost/GBM hyperparameters
-# hyper_params <- list(ntrees = seq(10, 1000, 1),
-#                      learn_rate = seq(0.0001, 0.2, 0.0001),
-#                      max_depth = seq(1, 20, 1),
-#                      sample_rate = seq(0.5, 1.0, 0.0001),
-#                      col_sample_rate = seq(0.2, 1.0, 0.0001))
+# hyper_params <- list(ntrees = seq(50, 1000, 1),
+#                      learn_rate = seq(0.01, 0.2, 0.01),
+#                      max_depth = seq(3, 9, 1),
+#                      sample_rate = seq(0.5, 1.0, 0.01),
+#                      col_sample_rate = seq(0.33, 1.0, 0.01))
+# 
+# # search_criteria = list(strategy = "RandomDiscrete", 
+# #                        max_models = 100, seed = 1, stopping_rounds=5, stopping_tolerance=1e-2)
 # 
 # search_criteria <- list(strategy = "RandomDiscrete",
-#                         max_models = 10, 
+#                         max_models = 10,
 #                         seed = 1)
 # 
 # # Train the grid
@@ -126,8 +140,7 @@ x_test <- as.h2o(x_test)
 # grid_top_model <- grid@summary_table[1, "model_ids"]
 
 
-
-#--- MODEL ENSEMBLE
+# --- MODEL STACKING
 
 # Number of CV folds
 nfolds <- 5
@@ -137,12 +150,12 @@ my_xgb1 <- h2o.xgboost(x = x,
                        y = y,
                        training_frame = x_train,
                        distribution = "bernoulli",
-                       ntrees = 419,
-                       max_depth = 2,
+                       ntrees = 646,
+                       max_depth = 6,
                        min_rows = 1,
-                       learn_rate = 0.1102,
-                       col_sample_rate = 0.3475,
-                       sample_rate = 0.779,
+                       learn_rate = 0.02,
+                       col_sample_rate = 0.58,
+                       sample_rate = 0.68,
                        nfolds = nfolds,
                        fold_assignment = "Stratified",
                        keep_cross_validation_predictions = TRUE,
@@ -153,12 +166,12 @@ my_xgb2 <- h2o.xgboost(x = x,
                        y = y,
                        training_frame = x_train,
                        distribution = "bernoulli",
-                       ntrees = 19,
-                       max_depth = 7,
+                       ntrees = 170,
+                       max_depth = 4,
                        min_rows = 1,
-                       learn_rate = 0.0152,
-                       sample_rate = 0.501,
-                       col_sample_rate = 0.2288,
+                       learn_rate = 0.03,
+                       sample_rate = 0.83,
+                       col_sample_rate = 0.49,
                        nfolds = nfolds,
                        fold_assignment = "Stratified",
                        keep_cross_validation_predictions = TRUE,
@@ -169,42 +182,16 @@ my_xgb3 <- h2o.xgboost(x = x,
                        y = y,
                        training_frame = x_train,
                        distribution = "bernoulli",
-                       ntrees = 407,
-                       max_depth = 2,
+                       ntrees = 394,
+                       max_depth = 4,
                        min_rows = 1,
-                       learn_rate = 0.1563,
-                       sample_rate = 0.7349,
-                       col_sample_rate = 0.5737,
+                       learn_rate = 0.09,
+                       sample_rate = 0.79,
+                       col_sample_rate = 0.89,
                        nfolds = nfolds,
                        fold_assignment = "Stratified",
                        keep_cross_validation_predictions = TRUE,
                        seed = 1)
-
-# # Train & Cross-validate another (deeper) XGB-GBM
-# my_xgb2 <- h2o.xgboost(x = x,
-#                        y = y,
-#                        training_frame = x_train,
-#                        distribution = "bernoulli",
-#                        ntrees = 501,
-#                        max_depth = 8,
-#                        min_rows = 1,
-#                        learn_rate = 0.1,
-#                        sample_rate = 0.7,
-#                        col_sample_rate = 0.9,
-#                        nfolds = nfolds,
-#                        fold_assignment = "Stratified",
-#                        keep_cross_validation_predictions = TRUE,
-#                        seed = 1)
-# 
-# # Train & Cross-validate a DNN
-# my_dl <- h2o.deeplearning(x = x,
-#                           y = y,
-#                           training_frame = x_train,
-#                           hidden = c(16, 16, 16),
-#                           nfolds = nfolds,
-#                           fold_assignment = "Stratified",
-#                           keep_cross_validation_predictions = TRUE,
-#                           seed = 1)
 
 # Train a stacked ensemble using the H2O and XGBoost models from above
 base_models <- list(my_xgb1@model_id, my_xgb2@model_id, my_xgb3@model_id)
@@ -226,8 +213,13 @@ test_df %>%
   select(id, stroke) %>%
   write.csv("submission.csv", row.names = FALSE)
 
+# All done, shutdown H2O    
+h2o.shutdown(prompt=FALSE)
+#---------------------------------------- END-OF-FILE ----------------------------------------#
 
-# 
+
+# Initial submission work with KERAS
+# library(keras)
 # #--------------------------------------------------
 # #--- 3. Building the network
 # #--------------------------------------------------
