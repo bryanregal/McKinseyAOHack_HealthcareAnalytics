@@ -1,7 +1,7 @@
 # McKinseyAOHack_HealthcareAnalytics
 Healthcare Analytics, McKinsey Analytics Online Hackathon
 
-This repository contains my solution to a 24-hour McKinley Analytics online hackathon organized by Analytics Vidhya on 14 April 2018. My final solution managed to get an AUC score of 84.72 on the public LB and 84.50 on the private. The complete details for this hackathon is available at: https://datahack.analyticsvidhya.com/contest/mckinsey-analytics-online-hackathon/
+This repository contains my final solution to a 24-hour McKinley Analytics online hackathon organized by Analytics Vidhya on 14 April 2018. My final solution managed to get an AUC score of 84.72 on the public LB and 84.50 on the private. The complete details for this hackathon is available at: https://datahack.analyticsvidhya.com/contest/mckinsey-analytics-online-hackathon/
 
 
 ##### Tools and Software
