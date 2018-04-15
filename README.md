@@ -5,7 +5,7 @@ This repository contains my solution to a 24-hour McKinley Analytics online hack
 
 
 ##### Tools and Software
-For this hackathon, I've used R (3.4.4) via RStudio (1.0.153) on my ever reliable 2013 Macbook Pro (2 GHz Intel Core i5, 8GB RAM).
+For this hackathon, I've used R (3.4.4) via RStudio (1.0.153) on my ever reliable 2016 Macbook Pro (2 GHz Intel Core i5, 8GB RAM).
 
 Here's a list R libraries I'ved used in the process:
 
